@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use reaction::{RoleMessage, RoleReact, ServerSender, SetupMessage};
 use regex::Regex;
@@ -317,7 +316,7 @@ async fn main() {
 
     let token = std::env::var("BOT_TOKEN").expect("Missing Env Variable: BOT_TOKEN");
     let http = Http::new(&token, true);
-    let mut ws = WebSocket::connect(&token).await;
+    let ws = WebSocket::connect(&token).await;
     let cache = Cache::new();
 
     let bot = Bot {
