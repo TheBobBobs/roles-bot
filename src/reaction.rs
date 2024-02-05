@@ -19,6 +19,7 @@ pub struct SetupMessage {
     author_id: String,
     content: String,
     roles: Vec<(Range<usize>, String)>,
+    is_formatted: bool,
 }
 
 impl SetupMessage {
@@ -27,12 +28,21 @@ impl SetupMessage {
     }
 
     pub fn parse(author_id: String, mut content: &str) -> Option<Self> {
-        const EX_LEN: usize = "exclusive".len();
         content = content.trim();
-        let content = if content.is_char_boundary(EX_LEN)
-            && content[..EX_LEN].eq_ignore_ascii_case("exclusive")
-        {
-            let content = content[EX_LEN..].trim();
+        let mut is_exclusive = false;
+        let mut is_formatted = false;
+        for word in content.split_whitespace() {
+            if word.eq_ignore_ascii_case("exclusive") {
+                content = &content["exclusive".len()..].trim_start();
+                is_exclusive = true;
+            } else if word.eq_ignore_ascii_case("formatted") {
+                content = &content["formatted".len()..].trim_start();
+                is_formatted = true;
+            } else {
+                break;
+            }
+        }
+        let content = if is_exclusive {
             format!("[](EXCLUSIVE){content}")
         } else {
             content.to_string()
@@ -52,6 +62,7 @@ impl SetupMessage {
             author_id,
             content,
             roles,
+            is_formatted,
         })
     }
 
@@ -82,7 +93,11 @@ impl SetupMessage {
                     .and_then(emojis::Emoji::shortcode)
                     .unwrap_or(emoji);
                 let (role_id, role) = server.role_by_id_or_name(&role.1)?;
-                with_emojis.push_str(&format!(":{emoji}:[]({role_id}) __{}__", role.name));
+                if self.is_formatted {
+                    with_emojis.push_str(&format!(":{emoji}:[]({role_id})"));
+                } else {
+                    with_emojis.push_str(&format!(":{emoji}:[]({role_id}) __{}__", role.name));
+                }
                 continue;
             }
         }
