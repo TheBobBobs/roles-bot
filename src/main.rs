@@ -1,5 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Write, sync::Arc};
 
+use database::{ServerSettings, DB};
 use once_cell::sync::Lazy;
 use reaction::{RoleMessage, RoleReact, ServerSender, SetupMessage};
 use regex::Regex;
@@ -10,7 +11,9 @@ use volty::{
     types::servers::server::FieldsRole,
 };
 
+mod autorole;
 mod constants;
+mod database;
 mod error;
 mod reaction;
 
@@ -32,6 +35,7 @@ fn parse_colours(colours: &str) -> String {
 struct Bot {
     http: Http,
     cache: Cache,
+    db: DB,
 
     setup_messages: RwLock<HashMap<String, SetupMessage>>,
     role_messages: RwLock<HashMap<String, RoleMessage>>,
@@ -133,6 +137,9 @@ impl Bot {
         match command.to_lowercase().as_str() {
             "" | "help" => {
                 return self.help_command(message).await;
+            }
+            "auto" | "autorole" => {
+                return self.autorole_command(message, rest).await;
             }
             "color" | "colour" => {
                 return self.colour_command(message, rest).await;
@@ -241,6 +248,63 @@ impl Bot {
             .await?;
         Ok(())
     }
+
+    async fn autorole_command(&self, message: &Message, args: &str) -> Result<(), Error> {
+        let Some(server) = self.get_server(&message.channel_id).await else {
+            return Ok(());
+        };
+        if args.is_empty() {
+            let mut send = HELP_AUTOROLE_MESSAGE.to_string();
+            if let Some(ServerSettings {
+                id: _,
+                auto_role: Some(role_id),
+            }) = self.db.get_settings(&server.id).await
+            {
+                let role_name = server
+                    .roles
+                    .get(&role_id)
+                    .map(|r| &r.name)
+                    .unwrap_or(&role_id);
+                write!(send, "\nCurrent AutoRole\n{role_name}").unwrap();
+            }
+            self.http.send_message(&message.channel_id, send).await?;
+            return Ok(());
+        }
+
+        self.check_server_perms(&server.id, self.cache.user_id(), &[Permission::AssignRoles])
+            .await?;
+        self.check_server_perms(
+            &server.id,
+            &message.author_id,
+            &[Permission::AssignRoles, Permission::ManageServer],
+        )
+        .await?;
+
+        let mut settings = ServerSettings {
+            id: server.id.clone(),
+            auto_role: None,
+        };
+        if args != "clear" {
+            let Some((role_id, _role)) = server.role_by_id_or_name(args) else {
+                return Err(Error::InvalidRole(args.to_string()));
+            };
+            self.check_above_roles(&server.id, self.cache.user_id(), [args])
+                .await?;
+            self.check_above_roles(&server.id, &message.author_id, [args])
+                .await?;
+
+            settings.auto_role = Some(role_id.to_string());
+        }
+        self.db.save_settings(settings).await?;
+
+        let send = if args == "clear" {
+            "AutoRole cleared!"
+        } else {
+            "AutoRole set!"
+        };
+        self.http.send_message(&message.channel_id, send).await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -307,12 +371,25 @@ impl RawHandler for Bot {
             self.on_react_error(&channel_id, &user_id, e).await;
         }
     }
+
+    async fn on_server_member_join(&self, id: String, user_id: String) {
+        if let Err(e) = self.on_member_join(&id, &user_id).await {
+            self.on_member_join_error(&id, &user_id, e).await;
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().unwrap();
     env_logger::init();
+
+    let db = {
+        let uri = std::env::var("MONGO_URI").expect("Missing Env Variable: MONGO_URI");
+        let db_name = std::env::var("MONGO_DB_NAME").expect("Missing Env Variable: MONGO_DB_NAME");
+        let servers_col = "Servers";
+        DB::new(&uri, &db_name, servers_col).await.unwrap()
+    };
 
     let token = std::env::var("BOT_TOKEN").expect("Missing Env Variable: BOT_TOKEN");
     let http = Http::new(&token, true);
@@ -322,6 +399,7 @@ async fn main() {
     let bot = Bot {
         http,
         cache: cache.clone(),
+        db,
         setup_messages: RwLock::new(HashMap::new()),
         role_messages: RwLock::new(HashMap::new()),
         server_handlers: RwLock::new(HashMap::new()),

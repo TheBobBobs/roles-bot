@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::{
-    sync::mpsc::{channel, Sender},
+    sync::mpsc::{channel, Receiver, Sender},
     time::sleep,
 };
 use volty::{http::routes::servers::member_edit::MemberEdit, prelude::*};
@@ -33,10 +33,10 @@ impl SetupMessage {
         let mut is_formatted = false;
         for word in content.split_whitespace() {
             if word.eq_ignore_ascii_case("exclusive") {
-                content = &content["exclusive".len()..].trim_start();
+                content = content["exclusive".len()..].trim_start();
                 is_exclusive = true;
             } else if word.eq_ignore_ascii_case("formatted") {
-                content = &content["formatted".len()..].trim_start();
+                content = content["formatted".len()..].trim_start();
                 is_formatted = true;
             } else {
                 break;
@@ -139,14 +139,73 @@ pub enum RoleReact {
 
 #[derive(Clone)]
 pub struct RoleAction {
-    give: Vec<String>,
-    remove: Vec<String>,
+    pub give: Vec<String>,
+    pub remove: Vec<String>,
 }
 
 pub type ServerSender = Sender<(String, RoleAction)>;
+pub type ServerReceiver = Receiver<(String, RoleAction)>;
+
+async fn server_handler(server_id: String, http: Http, cache: Cache, mut rx: ServerReceiver) {
+    let mut next: Option<(String, RoleAction)> = None;
+    let mut edits: IndexMap<String, HashSet<String>> = IndexMap::new();
+    'outer: loop {
+        while let Some((user_id, action)) = next {
+            if !edits.contains_key(&user_id) {
+                let Ok(member) = cache.fetch_member(&http, &server_id, &user_id).await else {
+                    next = rx.try_recv().ok();
+                    continue;
+                };
+                edits.insert(user_id.clone(), member.roles);
+            }
+            let edit = edits.get_mut(&user_id).unwrap();
+            edit.extend(action.give);
+            for role in action.remove {
+                edit.remove(&role);
+            }
+            next = rx.try_recv().ok();
+        }
+
+        for (user_id, roles) in &edits {
+            let Ok(member) = cache.fetch_member(&http, &server_id, user_id).await else {
+                continue;
+            };
+            if *roles == member.roles {
+                continue;
+            };
+            let giving = roles.difference(&member.roles);
+            let taking = member.roles.difference(roles);
+            println!("Server: {server_id}, Member: {user_id}\n\tGiving: {giving:?}\n\tTaking: {taking:?}");
+            let data = MemberEdit::new().roles(roles);
+            let result = http.edit_member(&server_id, user_id, data).await;
+            match result {
+                Err(HttpError::Api(ApiError::RetryAfter(duration))) => {
+                    println!("RetryAfter: {duration:?}");
+                    sleep(duration).await;
+                    if let Some(index) = edits.get_index_of(user_id) {
+                        if index > 0 {
+                            edits.drain(0..index);
+                        }
+                    }
+                    next = rx.try_recv().ok();
+                    continue 'outer;
+                }
+                Err(e) => {
+                    dbg!(e);
+                }
+                _ => {}
+            }
+        }
+        edits.clear();
+        next = rx.recv().await;
+        if next.is_none() {
+            return;
+        }
+    }
+}
 
 impl Bot {
-    async fn queue_edit(&self, server_id: &str, user_id: String, action: RoleAction) {
+    pub async fn queue_edit(&self, server_id: &str, user_id: String, action: RoleAction) {
         let handlers = self.server_handlers.read().await;
         if let Some(sender) = handlers.get(server_id) {
             match sender.send((user_id.clone(), action.clone())).await {
@@ -159,67 +218,11 @@ impl Bot {
         drop(handlers);
         let cache = self.cache.clone();
         let http = self.http.clone();
-        let (tx, mut rx) = channel(100);
+        let (tx, rx) = channel(100);
         let server_id = server_id.to_string();
         let server_id_ = server_id.clone();
-        tokio::spawn(async move {
-            let mut next: Option<(String, RoleAction)> = None;
-            let mut edits: IndexMap<String, HashSet<String>> = IndexMap::new();
-            'outer: loop {
-                while let Some((user_id, action)) = next {
-                    if !edits.contains_key(&user_id) {
-                        let member = cache
-                            .fetch_member(&http, &server_id, &user_id)
-                            .await
-                            .unwrap();
-                        edits.insert(user_id.clone(), member.roles);
-                    }
-                    let edit = edits.get_mut(&user_id).unwrap();
-                    edit.extend(action.give);
-                    for role in action.remove {
-                        edit.remove(&role);
-                    }
-                    next = rx.try_recv().ok();
-                }
+        tokio::spawn(server_handler(server_id, http, cache, rx));
 
-                for (user_id, roles) in &edits {
-                    let member = cache
-                        .fetch_member(&http, &server_id, user_id)
-                        .await
-                        .unwrap();
-                    if *roles == member.roles {
-                        continue;
-                    };
-                    let giving = roles.difference(&member.roles);
-                    let taking = member.roles.difference(roles);
-                    println!("Server: {server_id}, Member: {user_id}\n\tGiving: {giving:?}\n\tTaking: {taking:?}");
-                    let data = MemberEdit::new().roles(roles);
-                    let result = http.edit_member(&server_id, user_id, data).await;
-                    match result {
-                        Err(HttpError::Api(ApiError::RetryAfter(duration))) => {
-                            println!("RetryAfter: {duration:?}");
-                            sleep(duration).await;
-                            if let Some(index) = edits.get_index_of(user_id) {
-                                if index > 0 {
-                                    edits.drain(0..index);
-                                }
-                            }
-                            next = rx.try_recv().ok();
-                            continue 'outer;
-                        }
-                        Err(e) => {
-                            dbg!(e);
-                        }
-                        _ => {}
-                    }
-                }
-                edits.clear();
-                next = rx.recv().await;
-                if next.is_none() {
-                    return;
-                }
-            }
-        });
         if let Err(e) = tx.send((user_id, action)).await {
             dbg!(e);
         }

@@ -22,3 +22,9 @@ impl From<HttpError> for Error {
         Self::Http(value)
     }
 }
+
+impl From<mongodb::error::Error> for Error {
+    fn from(_value: mongodb::error::Error) -> Self {
+        Self::Custom("Database Error!".to_string())
+    }
+}
