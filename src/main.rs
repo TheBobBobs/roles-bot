@@ -262,17 +262,15 @@ impl Bot {
         };
         if args.is_empty() {
             let mut send = HELP_AUTOROLE_MESSAGE.to_string();
-            if let Some(ServerSettings {
-                id: _,
-                auto_role: Some(role_id),
-            }) = self.db.get_settings(&server.id).await
-            {
-                let role_name = server
-                    .roles
-                    .get(&role_id)
-                    .map(|r| &r.name)
-                    .unwrap_or(&role_id);
-                write!(send, "\nCurrent AutoRole\n{role_name}").unwrap();
+            if let Some(settings) = self.db.get_settings(&server.id).await {
+                if !settings.auto_roles.is_empty() {
+                    write!(send, "\nCurrent AutoRoles:").unwrap();
+
+                    for role in settings.auto_roles {
+                        let name = server.roles.get(&role).map(|r| &r.name).unwrap_or(&role);
+                        write!(send, "\n`{name}`").unwrap();
+                    }
+                }
             }
             self.http.send_message(&message.channel_id, send).await?;
             return Ok(());
@@ -289,18 +287,33 @@ impl Bot {
 
         let mut settings = ServerSettings {
             id: server.id.clone(),
-            auto_role: None,
+            auto_roles: Vec::new(),
         };
         if args != "clear" {
-            let Some((role_id, _role)) = server.role_by_id_or_name(args) else {
-                return Err(Error::InvalidRole(args.to_string()));
-            };
-            self.check_above_roles(&server.id, self.cache.user_id(), [args])
-                .await?;
-            self.check_above_roles(&server.id, &message.author_id, [args])
-                .await?;
+            for mut role_id_or_name in args.split_ascii_whitespace() {
+                if let Some(role_id) = RE_ROLE_MENTION
+                    .captures(role_id_or_name)
+                    .map(|c| c.get(1).unwrap().as_str())
+                {
+                    role_id_or_name = role_id;
+                }
 
-            settings.auto_role = Some(role_id.to_string());
+                let Some((role_id, _role)) = server.role_by_id_or_name(role_id_or_name) else {
+                    return Err(Error::InvalidRole(role_id_or_name.to_string()));
+                };
+                self.check_above_roles(&server.id, self.cache.user_id(), [role_id])
+                    .await?;
+                self.check_above_roles(&server.id, &message.author_id, [role_id])
+                    .await?;
+
+                settings.auto_roles.push(role_id.to_string());
+                if settings.auto_roles.len() > 25 {
+                    self.http
+                        .send_message(&message.channel_id, "No more than 25 autoroles!")
+                        .await?;
+                    return Ok(());
+                }
+            }
         }
         self.db.save_settings(settings).await?;
 

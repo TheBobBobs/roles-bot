@@ -12,14 +12,14 @@ use tokio::sync::RwLock;
 #[derive(Clone, Debug)]
 pub struct ServerSettings {
     pub id: String,
-    pub auto_role: Option<String>,
+    pub auto_roles: Vec<String>,
 }
 
 impl From<ServerSettingsDoc> for ServerSettings {
     fn from(value: ServerSettingsDoc) -> Self {
         Self {
             id: value._id,
-            auto_role: value.auto_role,
+            auto_roles: value.auto_roles,
         }
     }
 }
@@ -27,14 +27,14 @@ impl From<ServerSettingsDoc> for ServerSettings {
 #[derive(Deserialize, Serialize)]
 struct ServerSettingsDoc {
     _id: String,
-    auto_role: Option<String>,
+    auto_roles: Vec<String>,
 }
 
 impl From<ServerSettings> for ServerSettingsDoc {
     fn from(value: ServerSettings) -> Self {
         Self {
             _id: value.id,
-            auto_role: value.auto_role,
+            auto_roles: value.auto_roles,
         }
     }
 }
