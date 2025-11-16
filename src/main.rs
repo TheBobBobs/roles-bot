@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use volty::{
     http::routes::{servers::role_edit::RoleEdit, users::user_edit::UserEdit},
     prelude::*,
-    types::servers::server::FieldsRole,
+    types::{servers::server::FieldsRole, util::regex::RE_ROLE_MENTION},
 };
 
 mod autorole;
@@ -213,10 +213,17 @@ impl Bot {
                 .await?;
             return Ok(());
         }
-        let (role_id_or_name, rest) = args.split_once(char::is_whitespace).unwrap_or((args, ""));
+        let (mut role_id_or_name, rest) =
+            args.split_once(char::is_whitespace).unwrap_or((args, ""));
         let Some(server) = self.get_server(&message.channel_id).await else {
             return Ok(());
         };
+        if let Some(role_id) = RE_ROLE_MENTION
+            .captures(role_id_or_name)
+            .map(|c| c.get(1).unwrap().as_str())
+        {
+            role_id_or_name = role_id;
+        }
         let Some((role_id, _role)) = server.role_by_id_or_name(role_id_or_name) else {
             return Err(Error::InvalidRole(role_id_or_name.to_string()));
         };
@@ -320,9 +327,9 @@ impl RawHandler for Bot {
         println!("Ready as {}", self.cache.user().await.username);
 
         let user = self.cache.user().await;
-        if !user
+        if user
             .status
-            .is_some_and(|s| s.text == Some("@Roles colour".into()))
+            .is_none_or(|s| s.text != Some("@Roles colour".into()))
         {
             let edit = UserEdit::new().status_text("@Roles colour");
             if let Err(e) = self.http.edit_user(self.cache.user_id(), edit).await {
@@ -372,9 +379,10 @@ impl RawHandler for Bot {
         }
     }
 
-    async fn on_server_member_join(&self, id: String, user_id: String) {
-        if let Err(e) = self.on_member_join(&id, &user_id).await {
-            self.on_member_join_error(&id, &user_id, e).await;
+    async fn on_server_member_join(&self, id: String, member: Member) {
+        let user_id = &member.id.user;
+        if let Err(e) = self.on_member_join(&id, user_id).await {
+            self.on_member_join_error(&id, user_id, e).await;
         }
     }
 }

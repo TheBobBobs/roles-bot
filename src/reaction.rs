@@ -47,12 +47,17 @@ impl SetupMessage {
         } else {
             content.to_string()
         };
-        static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\{ROLE:([^{}]{1,32})}").unwrap());
+        static RE: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r"(?i)\{ROLE:(?:<r@([0-9A-HJKMNP-TV-Z]{26})>|([^{}]{1,32}))}").unwrap()
+        });
         let captures = RE.captures_iter(&content);
         let mut roles = Vec::new();
         for capture in captures {
             let range = capture.get(0).unwrap().range();
-            let name_or_id = capture.get(1).unwrap().as_str();
+            let name_or_id = capture
+                .get(1)
+                .unwrap_or_else(|| capture.get(2).unwrap())
+                .as_str();
             roles.push((range, name_or_id.into()));
         }
         if roles.is_empty() {
