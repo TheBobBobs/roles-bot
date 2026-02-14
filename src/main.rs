@@ -421,10 +421,21 @@ async fn main() {
 
     let db = SqliteDB::new().unwrap();
 
-    let token = std::env::var("BOT_TOKEN").expect("Missing Env Variable: BOT_TOKEN");
-    let http = Http::new(&token, true);
-    let ws = WebSocket::connect(&token).await;
     let cache = Cache::new();
+
+    let token = std::env::var("BOT_TOKEN").expect("Missing Env Variable: BOT_TOKEN");
+    let api_url = std::env::var("API_URL").expect("Missing Env Variable: API_URL");
+
+    let (http, ws) = if api_url.is_empty() {
+        let http = Http::new(&token, true);
+        let ws = WebSocket::connect(&token).await;
+        (http, ws)
+    } else {
+        let http = Http::with_api_url(&api_url, &token, true);
+        let api_info = cache.api_info(&http).await.unwrap();
+        let ws = WebSocket::connect_with_url(&api_info.ws, &token).await;
+        (http, ws)
+    };
 
     let bot = Bot {
         http,
