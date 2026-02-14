@@ -201,7 +201,10 @@ impl Bot {
 
     async fn help_command(&self, message: &Message) -> Result<(), Error> {
         self.http
-            .send_message(&message.channel_id, HELP_MESSAGE)
+            .send_message(
+                &message.channel_id,
+                HELP_MESSAGE.replace("%BOT_MENTION%", self.cache.user_mention()),
+            )
             .await?;
         Ok(())
     }
@@ -209,7 +212,10 @@ impl Bot {
     async fn colour_command(&self, message: &Message, args: &str) -> Result<(), Error> {
         if args.is_empty() {
             self.http
-                .send_message(&message.channel_id, HELP_COLOUR_MESSAGE)
+                .send_message(
+                    &message.channel_id,
+                    HELP_COLOUR_MESSAGE.replace("%BOT_MENTION%", self.cache.user_mention()),
+                )
                 .await?;
             return Ok(());
         }
@@ -261,15 +267,16 @@ impl Bot {
             return Ok(());
         };
         if args.is_empty() {
-            let mut send = HELP_AUTOROLE_MESSAGE.to_string();
-            if let Some(settings) = self.db.get_settings(&server.id).await {
-                if !settings.auto_roles.is_empty() {
+            let mut send =
+                HELP_AUTOROLE_MESSAGE.replace("%BOT_MENTION%", self.cache.user_mention());
+            if let Some(settings) = self.db.get_settings(&server.id).await
+                && !settings.auto_roles.is_empty()
+            {
                     write!(send, "\nCurrent AutoRoles:").unwrap();
 
                     for role in settings.auto_roles {
                         let name = server.roles.get(&role).map(|r| &r.name).unwrap_or(&role);
                         write!(send, "\n`{name}`").unwrap();
-                    }
                 }
             }
             self.http.send_message(&message.channel_id, send).await?;

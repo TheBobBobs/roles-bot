@@ -1,6 +1,6 @@
 use volty::prelude::*;
 
-use crate::{error::Error, reaction::RoleAction, Bot};
+use crate::{Bot, error::Error, reaction::RoleAction};
 
 impl Bot {
     pub async fn on_member_join(&self, server_id: &str, user_id: &str) -> Result<(), Error> {

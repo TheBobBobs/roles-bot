@@ -7,12 +7,12 @@ use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::{
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, channel},
     time::sleep,
 };
 use volty::{http::routes::servers::member_edit::MemberEdit, prelude::*};
 
-use crate::{error::Error, Bot};
+use crate::{Bot, error::Error};
 
 #[derive(Clone, Debug)]
 pub struct SetupMessage {
@@ -180,17 +180,19 @@ async fn server_handler(server_id: String, http: Http, cache: Cache, mut rx: Ser
             };
             let giving = roles.difference(&member.roles);
             let taking = member.roles.difference(roles);
-            println!("Server: {server_id}, Member: {user_id}\n\tGiving: {giving:?}\n\tTaking: {taking:?}");
+            println!(
+                "Server: {server_id}, Member: {user_id}\n\tGiving: {giving:?}\n\tTaking: {taking:?}"
+            );
             let data = MemberEdit::new().roles(roles);
             let result = http.edit_member(&server_id, user_id, data).await;
             match result {
                 Err(HttpError::Api(ApiError::RetryAfter(duration))) => {
                     println!("RetryAfter: {duration:?}");
                     sleep(duration).await;
-                    if let Some(index) = edits.get_index_of(user_id) {
-                        if index > 0 {
+                    if let Some(index) = edits.get_index_of(user_id)
+                        && index > 0
+                    {
                             edits.drain(0..index);
-                        }
                     }
                     next = rx.try_recv().ok();
                     continue 'outer;
