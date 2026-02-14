@@ -23,8 +23,9 @@ impl From<HttpError> for Error {
     }
 }
 
-impl From<mongodb::error::Error> for Error {
-    fn from(_value: mongodb::error::Error) -> Self {
+impl From<rusqlite::Error> for Error {
+    fn from(value: rusqlite::Error) -> Self {
+        dbg!(value);
         Self::Custom("Database Error!".to_string())
     }
 }

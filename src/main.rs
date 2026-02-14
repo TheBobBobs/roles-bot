@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Write, sync::Arc};
 
-use database::{ServerSettings, DB};
+use database::ServerSettings;
 use once_cell::sync::Lazy;
 use reaction::{RoleMessage, RoleReact, ServerSender, SetupMessage};
 use regex::Regex;
@@ -20,6 +20,8 @@ mod reaction;
 use constants::*;
 use error::Error;
 
+use crate::database::SqliteDB;
+
 fn parse_colours(colours: &str) -> String {
     let colours = colours.trim();
     static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^(#?[a-z0-9]+)$").unwrap());
@@ -35,7 +37,7 @@ fn parse_colours(colours: &str) -> String {
 struct Bot {
     http: Http,
     cache: Cache,
-    db: DB,
+    db: SqliteDB,
 
     setup_messages: RwLock<HashMap<String, SetupMessage>>,
     role_messages: RwLock<HashMap<String, RoleMessage>>,
@@ -412,12 +414,7 @@ async fn main() {
     dotenvy::dotenv().unwrap();
     env_logger::init();
 
-    let db = {
-        let uri = std::env::var("MONGO_URI").expect("Missing Env Variable: MONGO_URI");
-        let db_name = std::env::var("MONGO_DB_NAME").expect("Missing Env Variable: MONGO_DB_NAME");
-        let servers_col = "Servers";
-        DB::new(&uri, &db_name, servers_col).await.unwrap()
-    };
+    let db = SqliteDB::new().unwrap();
 
     let token = std::env::var("BOT_TOKEN").expect("Missing Env Variable: BOT_TOKEN");
     let http = Http::new(&token, true);

@@ -10,12 +10,11 @@ license = "MIT"
 volty = { path = "../volty"}
 
 dotenvy = "0.15"
-emojis = "0.6"
+emojis = "0.8"
 env_logger = "0.11"
-futures = "0.3"
-indexmap = "2.7"
-mongodb = "3.1"
-once_cell = "1.20"
-regex = "1.11"
+indexmap = "2.13"
+once_cell = "1.21"
+regex = "1.12"
+rusqlite = { version = "0.38.0", features = [ "bundled" ] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

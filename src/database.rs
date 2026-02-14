@@ -1,13 +1,7 @@
 use std::collections::HashMap;
 
-use futures::TryStreamExt;
-use mongodb::{
-    bson::{doc, to_document},
-    options::ClientOptions,
-    Client, Collection,
-};
-use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use rusqlite::Connection;
+use tokio::sync::{Mutex, RwLock};
 
 #[derive(Clone, Debug)]
 pub struct ServerSettings {
@@ -15,77 +9,62 @@ pub struct ServerSettings {
     pub auto_roles: Vec<String>,
 }
 
-impl From<ServerSettingsDoc> for ServerSettings {
-    fn from(value: ServerSettingsDoc) -> Self {
-        Self {
-            id: value._id,
-            auto_roles: value.auto_roles,
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-struct ServerSettingsDoc {
-    _id: String,
-    auto_roles: Vec<String>,
-}
-
-impl From<ServerSettings> for ServerSettingsDoc {
-    fn from(value: ServerSettings) -> Self {
-        Self {
-            _id: value.id,
-            auto_roles: value.auto_roles,
-        }
-    }
-}
-
-pub struct DB {
-    server_col: Collection<ServerSettingsDoc>,
+pub struct SqliteDB {
+    pub conn: Mutex<Connection>,
     servers: RwLock<HashMap<String, ServerSettings>>,
 }
 
-impl DB {
-    pub async fn new(
-        uri: &str,
-        db_name: &str,
-        server_col: &str,
-    ) -> Result<DB, mongodb::error::Error> {
-        let mut options = ClientOptions::parse(uri).await?;
-        options.app_name = Some("RolesBot".to_string());
-        let client = Client::with_options(options)?;
-        let db = client.database(db_name);
-        let server_col: Collection<ServerSettingsDoc> = db.collection(server_col);
+impl SqliteDB {
+    pub fn new() -> Result<Self, rusqlite::Error> {
+        let conn = Connection::open("roles.sqlite")?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS autoroles (
+                server_id TEXT NOT NULL,
+                role_id TEXT NOT NULL,
+                PRIMARY KEY (server_id, role_id)
+            )",
+            (),
+        )?;
 
         let mut servers = HashMap::new();
-
-        let mut cursor = server_col.find(doc! {}).await?;
-        while let Some(server_doc) = cursor.try_next().await? {
-            let server: ServerSettings = server_doc.into();
-            servers.insert(server.id.clone(), server);
+        let mut stmt = conn.prepare("SELECT server_id, role_id FROM autoroles")?;
+        let rows = stmt.query_map((), |r| Ok((r.get(0)?, r.get(1)?)))?;
+        for row in rows {
+            let (server_id, role_id): (String, String) = row?;
+            let settings = servers
+                .entry(server_id.clone())
+                .or_insert_with(|| ServerSettings {
+                    id: server_id,
+                    auto_roles: Vec::new(),
+                });
+            settings.auto_roles.push(role_id);
         }
+        drop(stmt);
 
-        Ok(Self {
-            server_col,
-            servers: RwLock::new(servers),
-        })
+        let conn = Mutex::new(conn);
+        let servers = RwLock::new(servers);
+        Ok(Self { conn, servers })
     }
 
     pub async fn get_settings(&self, id: &str) -> Option<ServerSettings> {
-        let servers = self.servers.read().await;
-        servers.get(id).cloned()
+        self.servers.read().await.get(id).cloned()
     }
 
-    pub async fn save_settings(&self, server: ServerSettings) -> Result<(), mongodb::error::Error> {
-        let mut servers = self.servers.write().await;
-        let server_doc: ServerSettingsDoc = server.clone().into();
-        let filter = doc! {"_id": &server_doc._id};
-        let mut update = doc! {"$set": to_document(&server_doc).unwrap()};
-        update.remove("_id");
-        self.server_col
-            .update_one(filter, update)
-            .upsert(true)
-            .await?;
-        servers.insert(server.id.clone(), server);
+    pub async fn save_settings(&self, server: ServerSettings) -> Result<(), rusqlite::Error> {
+        {
+            let mut conn = self.conn.lock().await;
+            let txn = conn.transaction()?;
+            let mut stmt = txn.prepare(
+                "INSERT INTO autoroles (server_id, role_id)
+                VALUES (?, ?) ON CONFLICT DO NOTHING",
+            )?;
+            for role_id in &server.auto_roles {
+                stmt.execute((&server.id, role_id))?;
+            }
+            drop(stmt);
+            txn.commit()?;
+        }
+        self.servers.write().await.insert(server.id.clone(), server);
         Ok(())
     }
 }
