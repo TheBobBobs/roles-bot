@@ -48,7 +48,7 @@ impl SetupMessage {
             content.to_string()
         };
         static RE: Lazy<Regex> = Lazy::new(|| {
-            Regex::new(r"(?i)\{ROLE:(?:<r@([0-9A-HJKMNP-TV-Z]{26})>|([^{}]{1,32}))}").unwrap()
+            Regex::new(r"(?i)\{ROLE:(?:<%([0-9A-HJKMNP-TV-Z]{26})>|([^{}]{1,32}))}").unwrap()
         });
         let captures = RE.captures_iter(&content);
         let mut roles = Vec::new();
@@ -192,7 +192,7 @@ async fn server_handler(server_id: String, http: Http, cache: Cache, mut rx: Ser
                     if let Some(index) = edits.get_index_of(user_id)
                         && index > 0
                     {
-                            edits.drain(0..index);
+                        edits.drain(0..index);
                     }
                     next = rx.try_recv().ok();
                     continue 'outer;
