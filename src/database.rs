@@ -54,10 +54,9 @@ impl SqliteDB {
         {
             let mut conn = self.conn.lock().await;
             let txn = conn.transaction()?;
-            let mut stmt = txn.prepare(
-                "INSERT INTO autoroles (server_id, role_id)
-                VALUES (?, ?) ON CONFLICT DO NOTHING",
-            )?;
+            txn.execute("DELETE FROM autoroles WHERE server_id = ?", (&server.id,))?;
+            let mut stmt =
+                txn.prepare("INSERT INTO autoroles (server_id, role_id) VALUES (?, ?)")?;
             for role_id in &server.auto_roles {
                 stmt.execute((&server.id, role_id))?;
             }
