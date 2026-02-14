@@ -274,11 +274,11 @@ impl Bot {
             if let Some(settings) = self.db.get_settings(&server.id).await
                 && !settings.auto_roles.is_empty()
             {
-                    write!(send, "\nCurrent AutoRoles:").unwrap();
+                write!(send, "\nCurrent AutoRoles:").unwrap();
 
-                    for role in settings.auto_roles {
-                        let name = server.roles.get(&role).map(|r| &r.name).unwrap_or(&role);
-                        write!(send, "\n`{name}`").unwrap();
+                for role in settings.auto_roles {
+                    let name = server.roles.get(&role).map(|r| &r.name).unwrap_or(&role);
+                    write!(send, "\n`{name}`").unwrap();
                 }
             }
             self.http.send_message(&message.channel_id, send).await?;
@@ -341,12 +341,17 @@ impl RawHandler for Bot {
     async fn on_ready(
         &self,
         _users: Vec<User>,
-        _servers: Vec<Server>,
+        servers: Vec<Server>,
         _channels: Vec<Channel>,
         _members: Vec<Member>,
         _emojis: Vec<Emoji>,
     ) {
-        println!("Ready as {}", self.cache.user().await.username);
+        println!(
+            "Ready as {} in {} server{}",
+            self.cache.user().await.username,
+            servers.len(),
+            if servers.len() != 1 { "s" } else { "" }
+        );
 
         let user = self.cache.user().await;
         if user
