@@ -50,7 +50,9 @@ impl SqliteDB {
         self.servers.read().await.get(id).cloned()
     }
 
-    pub async fn save_settings(&self, server: ServerSettings) -> Result<(), rusqlite::Error> {
+    pub async fn save_settings(&self, mut server: ServerSettings) -> Result<(), rusqlite::Error> {
+        server.auto_roles.sort();
+        server.auto_roles.dedup();
         {
             let mut conn = self.conn.lock().await;
             let txn = conn.transaction()?;
