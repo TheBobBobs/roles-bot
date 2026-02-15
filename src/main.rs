@@ -421,7 +421,11 @@ impl RawHandler for Bot {
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().unwrap();
+    if let Err(e) = dotenvy::dotenv()
+        && !e.not_found()
+    {
+        panic!("{e:?}");
+    }
     env_logger::init();
 
     register_conditional_shutdown(SIGINT, 0, AtomicBool::new(true).into()).unwrap();
@@ -433,7 +437,7 @@ async fn main() {
     let cache = Cache::new();
 
     let token = std::env::var("BOT_TOKEN").expect("Missing Env Variable: BOT_TOKEN");
-    let api_url = std::env::var("API_URL").expect("Missing Env Variable: API_URL");
+    let api_url = std::env::var("API_URL").unwrap_or_else(|_| String::new());
 
     let (http, ws) = if api_url.is_empty() {
         let http = Http::new(&token, true);
