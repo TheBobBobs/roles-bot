@@ -1,9 +1,14 @@
-use std::{collections::HashMap, fmt::Write, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::Write,
+    sync::{Arc, atomic::AtomicBool},
+};
 
 use database::ServerSettings;
 use once_cell::sync::Lazy;
 use reaction::{RoleMessage, RoleReact, ServerSender, SetupMessage};
 use regex::Regex;
+use signal_hook::{consts::signal::*, flag::register_conditional_shutdown};
 use tokio::sync::RwLock;
 use volty::{
     http::routes::{servers::role_edit::RoleEdit, users::user_edit::UserEdit},
@@ -418,6 +423,10 @@ impl RawHandler for Bot {
 async fn main() {
     dotenvy::dotenv().unwrap();
     env_logger::init();
+
+    register_conditional_shutdown(SIGINT, 0, AtomicBool::new(true).into()).unwrap();
+    register_conditional_shutdown(SIGQUIT, 0, AtomicBool::new(true).into()).unwrap();
+    register_conditional_shutdown(SIGTERM, 0, AtomicBool::new(true).into()).unwrap();
 
     let db = SqliteDB::new().unwrap();
 

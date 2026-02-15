@@ -7,7 +7,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-volty = { path = "../volty"}
+volty = { git = "https://github.com/TheBobBobs/volty"}
 
 dotenvy = "0.15"
 emojis = "0.8"
@@ -18,3 +18,5 @@ regex = "1.12"
 rusqlite = { version = "0.38.0", features = [ "bundled" ] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+signal-hook = "0.4"
